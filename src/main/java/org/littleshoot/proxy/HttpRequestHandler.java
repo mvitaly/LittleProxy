@@ -24,6 +24,7 @@ import javax.management.MBeanServer;
 import javax.management.MalformedObjectNameException;
 import javax.management.NotCompliantMBeanException;
 import javax.management.ObjectName;
+import javax.net.ssl.SSLEngine;
 
 import org.apache.commons.lang3.StringUtils;
 import org.jboss.netty.bootstrap.ClientBootstrap;
@@ -49,6 +50,7 @@ import org.jboss.netty.handler.codec.http.HttpRequestEncoder;
 import org.jboss.netty.handler.codec.http.HttpResponse;
 import org.jboss.netty.handler.codec.http.HttpResponseStatus;
 import org.jboss.netty.handler.codec.http.HttpVersion;
+import org.jboss.netty.handler.ssl.SslHandler;
 import org.littleshoot.dnssec4j.VerifiedAddressFactory;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -609,6 +611,12 @@ public class HttpRequestHandler extends SimpleChannelUpstreamHandler
             final String statusLine = "HTTP/1.1 200 Connection established\r\n";
             ProxyUtils.writeResponse(browserToProxyChannel, statusLine,
                 ProxyUtils.CONNECT_OK_HEADERS);
+            
+            log.info("Adding SSL handler");
+            final SslContextFactory scf = new SslContextFactory(new SelfSignedKeyStoreManager());
+            final SSLEngine engine = scf.getServerContext().createSSLEngine();
+            engine.setUseClientMode(false);
+			ctx.getPipeline().addBefore("handler", "ssl", new SslHandler(engine));
         }
         
         browserToProxyChannel.setReadable(true);
@@ -643,6 +651,19 @@ public class HttpRequestHandler extends SimpleChannelUpstreamHandler
                 public ChannelPipeline getPipeline() throws Exception {
                     // Create a default pipeline implementation.
                     final ChannelPipeline pipeline = pipeline();
+
+                    log.info("Adding SSL handler");
+                    final SslContextFactory scf = new SslContextFactory(new SelfSignedKeyStoreManager());
+                    final SSLEngine engine = scf.getClientContext().createSSLEngine();
+                    engine.setUseClientMode(true);
+                    pipeline.addLast("ssl", new SslHandler(engine) {
+                    	@Override
+                    	public void channelConnected(ChannelHandlerContext ctx, ChannelStateEvent e) throws Exception {
+                    		super.channelConnected(ctx, e);
+                    		handshake();
+                    	}
+                    });
+
                     pipeline.addLast("handler", 
                         new HttpConnectRelayingHandler(browserToProxyChannel,
                             channelGroup));
